@@ -1,0 +1,67 @@
+#!/usr/bin/env perl
+use strict;
+use utf8;
+use warnings;
+
+my @header = grep { !/^-/  } @ARGV;
+my @option = map { s/^-// ? $_ : () } @ARGV;
+
+die <<"..." if grep { $_ eq "h" } @option;
+Usage: $0 [options] headers
+
+options:
+  -c    search c headers (defualt)
+  -c++  search c++ headers
+  -a    list all paths of headers found
+  -v    verbose mode
+  -h    show this help
+
+eg:
+  > $0 -c time.h
+  > $0 -c++ ctime string
+...
+
+die "No header argument given, try: $0 -h\n" if @header == 0;
+
+my $verbose = !!grep { $_ eq "v" } @option;
+my $type = (grep { $_ eq "c++" } @option) ? "c++" : "c";
+my $all = !!grep { $_ eq "a" } @option;
+
+my $cmd = "echo | gcc -x$type -v -E -";
+warn "Execute:\n$cmd\n" if $verbose;
+my @line = `$cmd 2>&1 >/dev/null`;
+die "Failed to exec `$cmd`\n" if $? != 0;
+
+while (my $line = shift @line) {
+    last if $line =~ qr/\Q#include\E/;
+}
+
+my @search_list;
+while (my $line = shift @line) {
+    last if $line =~ qr/\QEnd of search list\E/;
+    if ($line =~ s{^\s*(?=/)}{}) {
+        chomp $line;
+        $line =~ s{\s+\Q(framework directory)\E}{};
+        push @search_list, $line;
+    }
+}
+
+if ($verbose) {
+    warn "Search list:\n";
+    warn "$_\n" for @search_list;
+    warn "\n";
+}
+
+my $not_found;
+for my $header (@header) {
+    if (my ($first, @rest) = grep -f, map { "$_/$header" } @search_list) {
+        print "$first\n";
+        next unless $all;
+        print "$_\n" for @rest;
+    } else {
+        warn "Not found $header\n";
+        $not_found++;
+    }
+}
+
+exit( $not_found ? 1 : 0 );
