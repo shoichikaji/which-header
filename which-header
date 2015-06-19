@@ -6,19 +6,20 @@ use warnings;
 my @header = grep { !/^-/  } @ARGV;
 my @option = map { s/^-// ? $_ : () } @ARGV;
 
-die <<"..." if grep { $_ eq "h" } @option;
-Usage: $0 [options] headers
+die <<'...' if grep { $_ eq "h" } @option;
+Usage: which-header [options] headers
 
 options:
-  -c    search c headers (defualt)
-  -c++  search c++ headers
-  -a    list all paths of headers found
-  -v    verbose mode
-  -h    show this help
+  -c     search c headers (defualt)
+  -c++   search c++ headers
+  -a     list all paths of headers found
+  -v     verbose mode
+  -h     show this help
+  -Idir  prepend search directories
 
 eg:
-  > $0 -c time.h
-  > $0 -c++ ctime string
+  > which-header -c time.h
+  > which-header -c++ ctime string
 ...
 
 die "No header argument given, try: $0 -h\n" if @header == 0;
@@ -26,6 +27,7 @@ die "No header argument given, try: $0 -h\n" if @header == 0;
 my $verbose = !!grep { $_ eq "v" } @option;
 my $type = (grep { $_ eq "c++" } @option) ? "c++" : "c";
 my $all = !!grep { $_ eq "a" } @option;
+my @user_search_list = map { s/I// && $_ ? $_ : () } @option;
 
 my $cmd = "echo | gcc -x$type -v -E -";
 warn "Execute:\n$cmd\n" if $verbose;
@@ -36,7 +38,7 @@ while (my $line = shift @line) {
     last if $line =~ qr/\Q#include\E/;
 }
 
-my @search_list;
+my @search_list = @user_search_list;
 while (my $line = shift @line) {
     last if $line =~ qr/\QEnd of search list\E/;
     if ($line =~ s{^\s*(?=/)}{}) {
