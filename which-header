@@ -2,6 +2,7 @@
 use strict;
 use utf8;
 use warnings;
+use Cwd 'abs_path';
 
 my @header = grep { !/^-/  } @ARGV;
 my @option = map { s/^-// ? $_ : () } @ARGV;
@@ -30,7 +31,7 @@ my $all = !!grep { $_ eq "a" } @option;
 my @user_search_list = map { s/I// && $_ ? $_ : () } @option;
 
 my $cmd = "echo | gcc -x$type -v -E -";
-warn "Execute:\n$cmd\n" if $verbose;
+warn "Execute:\n\t$cmd\n" if $verbose;
 my @line = `$cmd 2>&1 >/dev/null`;
 die "Failed to exec `$cmd`\n" if $? != 0;
 
@@ -38,19 +39,26 @@ while (my $line = shift @line) {
     last if $line =~ qr/\Q#include\E/;
 }
 
+my $in = 0;
 my @search_list = @user_search_list;
 while (my $line = shift @line) {
-    last if $line =~ qr/\QEnd of search list\E/;
-    if ($line =~ s{^\s*(?=/)}{}) {
+    if ($line =~ /search\s+starts\s+here/i) {
+        $in++;
+    }
+    if ($line =~ /\QEnd of search list\E/) {
+        last;
+    }
+    if ($in and $line =~ s{^\s*(?=/)}{}) {
         chomp $line;
         $line =~ s{\s+\Q(framework directory)\E}{};
         push @search_list, $line;
     }
 }
+@search_list = map { abs_path $_ } grep -d, @search_list;
 
 if ($verbose) {
     warn "Search list:\n";
-    warn "$_\n" for @search_list;
+    warn "\t$_\n" for @search_list;
     warn "\n";
 }
 
