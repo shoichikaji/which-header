@@ -2,76 +2,83 @@
 use strict;
 use utf8;
 use warnings;
-use Cwd 'abs_path';
 
-my @header = grep { !/^-/  } @ARGV;
-my @option = map { s/^-// ? $_ : () } @ARGV;
-
-die <<'...' if grep { $_ eq "h" } @option;
+my $USAGE = <<'___';
 Usage: which-header [options] headers
+  -t, --type=TYPE           search type: all, c, or c++
+  -h, --help                show this help
+  -I, --include=DIRECTORY   prepend search directories
+  -s, --show                show search directories, and exit
 
-options:
-  -c     search c headers (defualt)
-  -c++   search c++ headers
-  -a     list all paths of headers found
-  -v     verbose mode
-  -h     show this help
-  -Idir  prepend search directories
+Example:
+  $ which-header time.h
+  $ which-header ctime string
+___
 
-eg:
-  > which-header -c time.h
-  > which-header -c++ ctime string
-...
-
-die "No header argument given, try: $0 -h\n" if @header == 0;
-
-my $verbose = !!grep { $_ eq "v" } @option;
-my $type = (grep { $_ eq "c++" } @option) ? "c++" : "c";
-my $all = !!grep { $_ eq "a" } @option;
-my @user_search_list = map { s/I// && $_ ? $_ : () } @option;
-
-my $cmd = "echo | gcc -x$type -v -E -";
-warn "Execute:\n\t$cmd\n" if $verbose;
-my @line = `$cmd 2>&1 >/dev/null`;
-die "Failed to exec `$cmd`\n" if $? != 0;
-
-while (my $line = shift @line) {
-    last if $line =~ qr/\Q#include\E/;
+{
+    package App;
+    use Cwd 'abs_path';
+    use Getopt::Long qw(:config no_auto_abbrev no_ignore_case bundling);
+    sub new { bless {}, shift }
+    sub parse_options {
+        my $self = shift;
+        local @ARGV = @_;
+        @ARGV = map { /-I(\S.*)/ ? ("-I", $1) : $_ } @ARGV;
+        $self->{include} ||= [];
+        GetOptions
+            "t|type=s"     => \($self->{type} = "all"),
+            "h|help"       => sub { print $USAGE; exit },
+            "include|I=s@" => $self->{include},
+            "s|show"       => \$self->{show},
+        or exit 2;
+        $self->{header} = \@ARGV;
+        $self;
+    }
+    sub _uniq { my %uniq; grep { !$uniq{$_}++ } @_ }
+    sub _search_list {
+        my ($self, $type) = @_;
+        my $cmd = "echo | gcc -x$type -v -E -";
+        my @line = `$cmd 2>&1 >/dev/null`;
+        $? == 0 or die "Failed to exec `$cmd`\n";
+        my $in;
+        my @search_list;
+        while (my $line = shift @line) {
+            if ($line =~ /search\s+starts\s+here/i) {
+                $in++;
+            }
+            if ($line =~ /\QEnd of search list\E/) {
+                last;
+            }
+            if ($in and $line =~ s{^\s*(?=/)}{}) {
+                chomp $line;
+                $line =~ s{\s+\Q(framework directory)\E}{};
+                push @search_list, $line;
+            }
+        }
+        [ _uniq map { abs_path $_ } grep -d, @search_list ];
+    }
+    sub run {
+        my $self = shift;
+        @{$self->{header}} or die "Missing argument\n";
+        my @type = $self->{type} eq "all" ? ("c", "c++") : $self->{type};
+        my @search_list = @{$self->{include}};
+        for my $type (@type) {
+            push @search_list, @{ $self->_search_list($type) };
+            if ($self->{show}) {
+                print "$type: $_\n" for @{ $self->_search_list($type) };
+            }
+        }
+        exit if $self->{show};
+        @search_list = _uniq @search_list;
+        my $found;
+        for my $header (@{$self->{header}}) {
+            my @found = grep -f, map { "$_/$header" } @search_list;
+            print "$_\n" for @found;
+            $found++ if @found;
+        }
+        die "Not found\n" unless $found;
+    }
 }
 
-my $in = 0;
-my @search_list = @user_search_list;
-while (my $line = shift @line) {
-    if ($line =~ /search\s+starts\s+here/i) {
-        $in++;
-    }
-    if ($line =~ /\QEnd of search list\E/) {
-        last;
-    }
-    if ($in and $line =~ s{^\s*(?=/)}{}) {
-        chomp $line;
-        $line =~ s{\s+\Q(framework directory)\E}{};
-        push @search_list, $line;
-    }
-}
-@search_list = map { abs_path $_ } grep -d, @search_list;
+App->new->parse_options(@ARGV)->run;
 
-if ($verbose) {
-    warn "Search list:\n";
-    warn "\t$_\n" for @search_list;
-    warn "\n";
-}
-
-my $not_found;
-for my $header (@header) {
-    if (my ($first, @rest) = grep -f, map { "$_/$header" } @search_list) {
-        print "$first\n";
-        next unless $all;
-        print "$_\n" for @rest;
-    } else {
-        warn "Not found $header\n";
-        $not_found++;
-    }
-}
-
-exit( $not_found ? 1 : 0 );

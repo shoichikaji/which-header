@@ -9,10 +9,10 @@ That is, `which-header` searches the paths for each header files.
 $ which-header fcntl.h
 /usr/include/fcntl.h
 
-$ which-header -a openssl/ssl.h
+$ which-header openssl/ssl.h
 /usr/local/include/openssl/ssl.h
 /usr/include/openssl/ssl.h
 
-$ which-header -c++ ctime
+$ which-header ctime
 /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/../include/c++/v1/ctime
 ```
